@@ -1,46 +1,10 @@
 (function () {
   "use strict";
 
-  // ---------- Countdown ----------
-  var launchEl = document.querySelector("[data-launch]");
-  var launchDate = launchEl ? new Date(launchEl.getAttribute("data-launch")).getTime() : 0;
-
-  var els = {
-    d: document.getElementById("d"),
-    h: document.getElementById("h"),
-    m: document.getElementById("m"),
-    s: document.getElementById("s"),
-  };
-  var statusEl = document.getElementById("status");
-
-  function pad(n) {
-    return String(n).padStart(2, "0");
-  }
-
-  function tick() {
-    var diff = launchDate - Date.now();
-    if (diff <= 0) {
-      els.d.textContent = els.h.textContent = els.m.textContent = els.s.textContent = "00";
-      if (statusEl) statusEl.textContent = "We're launching — stay tuned!";
-      return;
-    }
-    var d = Math.floor(diff / 86400000); diff -= d * 86400000;
-    var h = Math.floor(diff / 3600000); diff -= h * 3600000;
-    var m = Math.floor(diff / 60000); diff -= m * 60000;
-    var s = Math.floor(diff / 1000);
-    els.d.textContent = pad(d);
-    els.h.textContent = pad(h);
-    els.m.textContent = pad(m);
-    els.s.textContent = pad(s);
-  }
-  tick();
-  setInterval(tick, 1000);
-
   // ---------- Subtle sound (Web Audio API, no files needed) ----------
   var SOUND_KEY = "leo-launch-muted";
   var muted = localStorage.getItem(SOUND_KEY) === "1";
   var ctx = null;
-  var interacted = false;
   var toggleBtn = document.getElementById("sound-toggle");
 
   function updateToggleIcon() {
@@ -59,6 +23,8 @@
     if (ctx.state === "suspended") ctx.resume();
     return ctx;
   }
+  window.addEventListener("pointerdown", ensureCtx, { once: true });
+  window.addEventListener("keydown", ensureCtx, { once: true });
 
   function playTone(freq, duration, type, gainPeak, delay) {
     if (muted) return;
@@ -79,20 +45,16 @@
 
   function playHover() { playTone(880, 0.12, "sine", 0.03); }
   function playClick() { playTone(1318.5, 0.09, "triangle", 0.045); }
-  function playWelcomeChime() {
-    playTone(523.25, 0.25, "sine", 0.035, 0);
-    playTone(659.25, 0.25, "sine", 0.035, 0.12);
-    playTone(783.99, 0.35, "sine", 0.035, 0.24);
+  function playTick(n) {
+    var freq = 420 + (10 - n) * 35;
+    playTone(freq, 0.13, "square", 0.045);
   }
-
-  function firstInteraction() {
-    if (interacted) return;
-    interacted = true;
-    ensureCtx();
-    if (!muted) playWelcomeChime();
+  function playLiftoff() {
+    playTone(180, 0.6, "sawtooth", 0.05, 0);
+    playTone(360, 0.5, "sine", 0.04, 0.08);
+    playTone(720, 0.6, "sine", 0.035, 0.18);
+    playTone(1440, 0.8, "sine", 0.025, 0.32);
   }
-  window.addEventListener("pointerdown", firstInteraction, { once: true });
-  window.addEventListener("keydown", firstInteraction, { once: true });
 
   if (toggleBtn) {
     toggleBtn.addEventListener("click", function (e) {
@@ -108,13 +70,73 @@
   }
 
   document.querySelectorAll(".hoverable").forEach(function (el) {
-    el.addEventListener("mouseenter", function () {
-      if (interacted) playHover();
-    });
-    el.addEventListener("click", function () {
-      if (interacted) playClick();
-    });
+    el.addEventListener("mouseenter", function () { playHover(); });
+    el.addEventListener("click", function () { playClick(); });
   });
+
+  // ---------- Launch sequence ----------
+  var landing = document.getElementById("landing");
+  var countdownScreen = document.getElementById("countdown-screen");
+  var doneScreen = document.getElementById("done-screen");
+  var countEl = document.getElementById("count-number");
+  var doneMessage = document.getElementById("done-message");
+  var launchBtn = document.getElementById("launch-btn");
+  var targetUrl = (document.body.getAttribute("data-target-url") || "").trim();
+
+  function showScreen(target) {
+    [landing, countdownScreen, doneScreen].forEach(function (s) {
+      if (s) s.classList.add("hidden");
+    });
+    if (target) target.classList.remove("hidden");
+  }
+
+  function bump(el) {
+    el.classList.remove("bump");
+    void el.offsetWidth;
+    el.classList.add("bump");
+  }
+
+  function startCountdown() {
+    showScreen(countdownScreen);
+    var n = 10;
+    countEl.textContent = String(n);
+    playTick(n);
+    var timer = setInterval(function () {
+      n--;
+      if (n > 0) {
+        countEl.textContent = String(n);
+        playTick(n);
+        bump(countEl);
+      } else {
+        clearInterval(timer);
+        liftoff();
+      }
+    }, 1000);
+  }
+
+  function liftoff() {
+    playLiftoff();
+    countEl.textContent = "🚀";
+    bump(countEl);
+    setTimeout(function () {
+      showScreen(doneScreen);
+      if (targetUrl) {
+        doneMessage.textContent = "Taking off…";
+        setTimeout(function () {
+          window.location.href = targetUrl;
+        }, 1000);
+      } else {
+        doneMessage.textContent = "We're almost ready — the full site isn't live yet. Please check back soon!";
+      }
+    }, 500);
+  }
+
+  if (launchBtn) {
+    launchBtn.addEventListener("click", function () {
+      ensureCtx();
+      startCountdown();
+    });
+  }
 
   // ---------- Soft drifting particle background ----------
   var canvas = document.getElementById("bg");
